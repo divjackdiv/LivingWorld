@@ -1,0 +1,4 @@
+sceneSetups:
+- path: Assets/Scenes/MapGeneration.unity
+  isLoaded: 1
+  isActive: 1
