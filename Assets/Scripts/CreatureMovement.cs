@@ -3,33 +3,72 @@ using System.Collections.Generic;
 using UnityEngine;
 
 public class CreatureMovement : MonoBehaviour {
-
+    public Joint m_debugJoint;
 	// Use this for initialization
 	void Start () {
 		
 	}
-	
-	// Update is called once per frame
-	void Update () {
-		
-	}
+    public float currentAngleDeb;
+
+    // Update is called once per frame
+    void Update () {
+        if(m_debugJoint != null)//&& Input.GetKeyDown(KeyCode.Space))
+        {
+            FeedBackward(m_debugJoint);    
+        }
+    }
 
     void MoveTo(Vector3 position) {
 
     }
 
-    /*
-    void FeedBackward(Transform joint)
+    void FeedBackward(Joint joint)
     {
-        Vector3 prevJoint = joint.position;
-        Quaternion rotation = Quaternion.identity;
-        for (int i = 1; i < Joints.Length; i++)
+        if (joint.m_boneJoint == null || joint.m_boneJoint.previousJoint == null)
+            return;
+        Transform previousTransform = joint.m_boneJoint.previousJoint.gameObject.transform;
+        float currentAngle = currentAngleDeb = Vector2.SignedAngle(Vector3.right, joint.transform.position - previousTransform.position);
+        currentAngle = DegToRad(currentAngle);
+
+        Vector3 vecDifference = PolarToCartesian(joint.m_boneJoint.distanceFromLastBone, currentAngle);
+
+        joint.m_boneJoint.previousJoint.gameObject.transform.position = joint.transform.position - vecDifference;
+        if(joint.m_boneJoint.previousJoint != null)
+            FeedBackward(joint.m_boneJoint.previousJoint.gameObject.GetComponent<Joint>());
+      /*  for (int i = 0; i < joint.m_boneJoint.nextJoints.Count; i++)
         {
-            // Rotates around a new axis
-            rotation *= Quaternion.AngleAxis(angles[i - 1], Joints[i - 1].Axis);
-            Vector3 nextPoint = prevPoint + rotation * Joints[i].StartOffset;
-            prevPoint = nextPoint;
+            FeedForward(joint.m_boneJoint.nextJoints);
+        }*/
+    }
+    /*
+    void FeedForward(Joint joint)
+    {
+        if (joint.m_boneJoint == null || joint.m_boneJoint.previousJoint == null)
+            return;
+        Transform previousTransform = joint.m_boneJoint.previousJoint.gameObject.transform;
+        float currentAngle = currentAngleDeb = Vector2.SignedAngle(Vector3.right, joint.transform.position - previousTransform.position);
+        currentAngle = DegToRad(currentAngle);
+
+        Vector3 vecDifference = PolarToCartesian(joint.m_boneJoint.distanceFromLastBone, currentAngle);
+
+        joint.m_boneJoint.previousJoint.gameObject.transform.position = joint.transform.position - vecDifference;
+        if (joint.m_boneJoint.previousJoint != null)
+            FeedBackward(joint.m_boneJoint.previousJoint.gameObject.GetComponent<Joint>());
+        for (int i = 0; i < joint.m_boneJoint.nextJoints.Count; i++)
+        {
+            FeedForward(joint.m_boneJoint.nextJoints);
         }
-        return prevPoint;
     }*/
+
+
+
+    Vector2 PolarToCartesian(float distance, float angle)
+    {
+        return new Vector2(distance * Mathf.Cos(angle), distance * Mathf.Sin(angle));
+    }
+
+    float DegToRad(float degrees)
+    {
+        return degrees == 0 ? 0 : degrees/57.2958f;
+    }
 }
