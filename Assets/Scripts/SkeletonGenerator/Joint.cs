@@ -12,7 +12,7 @@ public class Joint : MonoBehaviour {
     Transform previousJointTransform;
     void Start()
     {
-        previousJointTransform = m_boneJoint.previousJoint != null ? m_boneJoint.previousJoint.gameObject.transform : null;
+        previousJointTransform = m_boneJoint.previousJoint != null ? m_boneJoint.previousJoint.transform : null;
         m_lineRenderer = GetComponent<LineRenderer>();
         if (previousJointTransform == null)
         {

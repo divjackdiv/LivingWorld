@@ -10,8 +10,13 @@ public class BoneJoint
     public BoneJoint previousJoint;
     public List<BoneJoint> nextJoints;
     public GameObject gameObject;
+    public Transform transform;
     public Color color;
-    public BoneJoint(BoneJoint previous, float distLastBone, float angLastBone, float xScale, float yScale, Color col)
+    public bool isLegJoint;
+    public float maxDistanceFromHead; //Only populated and used for feet
+    public BoneJoint closestBodyJoint; //Only populated and used for feet
+    public float maxDistanceFromBodyJoint; //Only populated and used for feet
+    public BoneJoint(BoneJoint previous, float distLastBone, float angLastBone, float xScale, float yScale, Color col, bool isPartOfLeg)
     {
         previousJoint = previous;
         scale = new Vector2(xScale, yScale);
@@ -19,12 +24,92 @@ public class BoneJoint
         angleFromLastBone = angLastBone;
         nextJoints = new List<BoneJoint>();
         color = col;
+        isLegJoint = isPartOfLeg;
+        closestBodyJoint = null;
+        maxDistanceFromBodyJoint = 0;
+        maxDistanceFromHead = 0;
     }
 }
 
 public class Skeleton
 {
     public BoneJoint head;
+    public BoneJoint baseOfNeck;
+    public List<BoneJoint> feet;
+    public BoneJoint baseOfTail;
+    public BoneJoint endOfTail;
+    public int boneCount;
+
+    public void SetupFromHead()
+    {
+        feet = new List<BoneJoint>();
+        List<BoneJoint> bodyJointsToVisit = new List<BoneJoint>();
+        bodyJointsToVisit.Add(head);
+        boneCount = 0;
+        float maxDistFromBodyJoint = 0f;
+        float maxDistFromHead = 0f;
+        BoneJoint latestBodyJoint = null;
+        while (bodyJointsToVisit.Count > 0)
+        {
+            BoneJoint currentJoint = bodyJointsToVisit[0];
+            boneCount++;
+            maxDistFromHead += currentJoint.distanceFromLastBone;
+            currentJoint.maxDistanceFromHead = maxDistFromHead;
+            latestBodyJoint = currentJoint;
+            maxDistFromBodyJoint = 0f;
+            if (baseOfNeck == null)
+            {
+                if (currentJoint.nextJoints != null && currentJoint.nextJoints.Count >= 2)
+                    baseOfNeck = currentJoint;
+            }
+            else if (currentJoint.nextJoints != null)
+            {
+                baseOfTail = currentJoint;
+            }
+            if(baseOfTail == null)
+            {
+                baseOfTail = currentJoint;
+            }
+           // for (int i = 0; i < boneCount; i++) {
+                Debug.Log("bodyjoint "+ boneCount + " max dist from head " + maxDistFromHead);
+           // }
+            endOfTail = currentJoint;
+            for (int i = 0; i < currentJoint.nextJoints.Count; i++)
+            {
+                BoneJoint nextJoint = currentJoint.nextJoints[i];
+                if (nextJoint.isLegJoint == true)
+                {
+                    while (nextJoint != null)
+                    {
+                        boneCount++;
+                        maxDistFromBodyJoint += nextJoint.distanceFromLastBone;
+                        nextJoint.maxDistanceFromHead = maxDistFromHead + maxDistFromBodyJoint;
+                        nextJoint.maxDistanceFromBodyJoint = maxDistFromBodyJoint;
+                        nextJoint.closestBodyJoint = latestBodyJoint;
+                        if (nextJoint.nextJoints == null || nextJoint.nextJoints.Count == 0)
+                        {
+                            feet.Add(nextJoint);
+                            maxDistFromBodyJoint = 0f;
+                            nextJoint = null;
+                        }
+                        else
+                        {
+                            nextJoint = nextJoint.nextJoints[0];// No need to worry about other next joints as only a body joint can have multiple next joints       
+                        }
+                    }
+                }
+                else
+                {
+                    bodyJointsToVisit.Add(nextJoint);
+                }
+            }
+            bodyJointsToVisit.RemoveAt(0);
+        }
+        if(baseOfNeck == null)
+        {
+            baseOfNeck = head;
+        }
+    }
 }
 
 public class SkeletonGenerator : MonoBehaviour {
@@ -104,6 +189,7 @@ public class SkeletonGenerator : MonoBehaviour {
         List<Color> colorPalette = GenerateRandomColorPalette(m_nbOfColorsMinMax, m_hueMinMax, m_saturationMinMax, m_luminanceMinMax, m_hueDifferenceMinMax);
         Skeleton skel = new Skeleton();
         skel.head = GenerateRandomSkeletonJoints(jointCount, legCount, legJointCount, colorPalette);
+        skel.SetupFromHead();
         return skel;
     }
 
@@ -113,7 +199,7 @@ public class SkeletonGenerator : MonoBehaviour {
         float perlinNoiseSeedOffset = RandomFloat(); //without this we would get the same result every time
         float perlinNoiseXOffset = RandomFloat() * 10f; //for nicer results we get a random subsection of the perlin noise
         float perlinNoiseX = 0f;
-        BoneJoint firstJoint = GenerateRandomBoneJoint(null, m_minJointScale, m_maxJointScale, 0, 0, 0, 0, perlinNoiseSeedOffset + perlinNoiseX + perlinNoiseXOffset, perlinNoiseSeedOffset + 0f, palette);
+        BoneJoint firstJoint = GenerateRandomBoneJoint(null, m_minJointScale, m_maxJointScale, 0, 0, 0, 0, perlinNoiseSeedOffset + perlinNoiseX + perlinNoiseXOffset, perlinNoiseSeedOffset + 0f, palette, false);
         if (jointCount == 1)
         {//if only a head and no other body joints, attach legs to head, otherwise never have head to leg connection
             for (int i = 0; i < legCount; i++)
@@ -127,7 +213,7 @@ public class SkeletonGenerator : MonoBehaviour {
         for (int i = 1; i < jointCount; i++)
         {
             perlinNoiseX = (i*1f + 1f) / jointCount;
-            BoneJoint newJoint = GenerateRandomBoneJoint(previousFrameJoint, m_minJointScale, m_maxJointScale, m_minDist, m_maxDist, m_minAngleDiff, m_maxAngleDiff, perlinNoiseSeedOffset + perlinNoiseX, perlinNoiseSeedOffset + 0f, palette);
+            BoneJoint newJoint = GenerateRandomBoneJoint(previousFrameJoint, m_minJointScale, m_maxJointScale, m_minDist, m_maxDist, m_minAngleDiff, m_maxAngleDiff, perlinNoiseSeedOffset + perlinNoiseX, perlinNoiseSeedOffset + 0f, palette, false);
             previousFrameJoint.nextJoints.Add(newJoint);
             previousFrameJoint = newJoint;
             if (leg < legIndexes.Length)
@@ -150,21 +236,21 @@ public class SkeletonGenerator : MonoBehaviour {
         float legPerlinNoiseX = 0f;
         for (int k = 0; k < jointCount; k++)
         {
-            BoneJoint newLegJoint = GenerateRandomBoneJoint(previousLegJoint, m_minLegJointScale, m_maxLegJointScale, m_minLegDist, m_maxLegDist, m_minLegAngleDiff, m_maxLegAngleDiff, perlinNoiseSeedOffset + legPerlinNoiseX, perlinNoiseSeedOffset + 0f, palette);
+            BoneJoint newLegJoint = GenerateRandomBoneJoint(previousLegJoint, m_minLegJointScale, m_maxLegJointScale, m_minLegDist, m_maxLegDist, m_minLegAngleDiff, m_maxLegAngleDiff, perlinNoiseSeedOffset + legPerlinNoiseX, perlinNoiseSeedOffset + 0f, palette, true);
             previousLegJoint.nextJoints.Add(newLegJoint);
             previousLegJoint = newLegJoint;
             legPerlinNoiseX = (k * 1f) / jointCount;
         }
     }
 
-    public BoneJoint GenerateRandomBoneJoint(BoneJoint previousJoint, float minJointScale, float maxJointScale, float minDist, float maxDist, float minAngleDiff, float maxAngleDiff, float perlinNoiseX, float perlinNoiseY, List<Color> ColorPalette)
+    public BoneJoint GenerateRandomBoneJoint(BoneJoint previousJoint, float minJointScale, float maxJointScale, float minDist, float maxDist, float minAngleDiff, float maxAngleDiff, float perlinNoiseX, float perlinNoiseY, List<Color> ColorPalette, bool isLegJoint)
     {
         float dist = minDist + (Mathf.PerlinNoise(perlinNoiseX, perlinNoiseY) * (maxDist - minDist));
         float angle = minAngleDiff + (Mathf.PerlinNoise(perlinNoiseX, (perlinNoiseY+0.1f)) * (maxAngleDiff - minAngleDiff)); 
         float xScale = minJointScale + (Mathf.PerlinNoise(perlinNoiseX, perlinNoiseY) * (maxJointScale - minJointScale));
         float yScale = xScale;
         Color color = ColorPalette[(int)(Mathf.PerlinNoise(perlinNoiseX, perlinNoiseY) * ColorPalette.Count)];
-        return new BoneJoint(previousJoint, dist, angle, xScale, yScale, color);
+        return new BoneJoint(previousJoint, dist, angle, xScale, yScale, color, isLegJoint);
     }
     
     public int[] RandomIntArray(int numberOfInts, int minValue, int maxValue)
@@ -200,6 +286,7 @@ public class SkeletonGenerator : MonoBehaviour {
     GameObject CreateSkeletonGameObject(Skeleton s)
     {
         GameObject creature = Instantiate(m_creaturePrefab);
+        creature.GetComponent<Creature>().m_skeleton = s;
         List<BoneJoint> jointsToVisit = new List<BoneJoint>();
         jointsToVisit.Add(s.head);
         GameObject lastJointGO = creature;
@@ -209,9 +296,8 @@ public class SkeletonGenerator : MonoBehaviour {
             if(currentJoint.previousJoint != null)
                 lastJointGO = currentJoint.previousJoint.gameObject;
             GameObject currentJointGO = Instantiate(m_jointPrefab);
-            currentJointGO.transform.parent = creature.transform;
-            currentJointGO.transform.localScale = currentJoint.scale;
             currentJointGO.transform.parent = creature.transform;// lastJointGO.transform;
+            currentJointGO.transform.localScale = currentJoint.scale;
             currentJointGO.transform.position = lastJointGO.transform.position;
             Vector2 pos = PolarToCartesian(currentJoint.distanceFromLastBone, currentJoint.angleFromLastBone);
             currentJointGO.transform.position += new Vector3(pos.x, pos.y,0);
@@ -230,6 +316,7 @@ public class SkeletonGenerator : MonoBehaviour {
                 lr.endColor = currentJoint.previousJoint.color;
             }
             currentJoint.gameObject = currentJointGO;
+            currentJoint.transform = currentJointGO.transform;
             jointsToVisit.RemoveAt(0);
             if (currentJoint.nextJoints != null)
                 jointsToVisit.AddRange(currentJoint.nextJoints);
