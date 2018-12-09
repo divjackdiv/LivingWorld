@@ -1,9 +1,10 @@
 ﻿<Properties StartupItem="LivingWorld.csproj">
   <MonoDevelop.Ide.Workspace ActiveConfiguration="Debug" />
-  <MonoDevelop.Ide.Workbench ActiveDocument="Assets\Scripts\SkeletonGenerator\SkeletonGenerator.cs">
+  <MonoDevelop.Ide.Workbench ActiveDocument="..\JapaneseRoom\Assets\Shaders\TransparentGlossy.shader">
     <Files>
       <File FileName="Assets\Scripts\SkeletonGenerator\SkeletonGenerator.cs" Line="1" Column="1" />
       <File FileName="Assets\Scripts\SkeletonGenerator\LineRendererChildToParent.cs" Line="1" Column="1" />
+      <File FileName="..\JapaneseRoom\Assets\Shaders\TransparentGlossy.shader" Line="1" Column="1" />
     </Files>
   </MonoDevelop.Ide.Workbench>
   <MonoDevelop.Ide.DebuggingService.Breakpoints>

@@ -4,6 +4,8 @@ using UnityEngine;
 
 public class BoneJoint
 {
+    public enum BoneJointType { Body = 0, Hip, Leg, Foot} //TODO consider seperating these into different child classes
+    public BoneJointType type;
     public Vector2 scale;
     public float distanceFromLastBone;
     public float angleFromLastBone;
@@ -12,7 +14,9 @@ public class BoneJoint
     public GameObject gameObject;
     public Transform transform;
     public Color color;
-    public bool isLegJoint;
+    //public bool isLegJoint;
+    public BoneJoint attachedFoot;
+    public float distanceFromFoot;
     public float maxDistanceFromHead; //Only populated and used for feet
     public BoneJoint closestBodyJoint; //Only populated and used for feet
     public float maxDistanceFromBodyJoint; //Only populated and used for feet
@@ -24,10 +28,25 @@ public class BoneJoint
         angleFromLastBone = angLastBone;
         nextJoints = new List<BoneJoint>();
         color = col;
-        isLegJoint = isPartOfLeg;
+        if (isPartOfLeg)
+            type = BoneJointType.Leg;
+        else
+            type = BoneJointType.Body;
+        //  isLegJoint = isPartOfLeg;
         closestBodyJoint = null;
+        attachedFoot = null;
         maxDistanceFromBodyJoint = 0;
         maxDistanceFromHead = 0;
+        distanceFromFoot = 0;
+    }
+
+    public bool isPartOfLeg()
+    {
+        return (type == BoneJoint.BoneJointType.Leg || type == BoneJoint.BoneJointType.Foot);
+    }
+    public bool isPartOfBody()
+    {
+        return (type == BoneJoint.BoneJointType.Body || type == BoneJoint.BoneJointType.Hip);
     }
 }
 
@@ -70,14 +89,12 @@ public class Skeleton
             {
                 baseOfTail = currentJoint;
             }
-           // for (int i = 0; i < boneCount; i++) {
-                Debug.Log("bodyjoint "+ boneCount + " max dist from head " + maxDistFromHead);
-           // }
+
             endOfTail = currentJoint;
             for (int i = 0; i < currentJoint.nextJoints.Count; i++)
             {
                 BoneJoint nextJoint = currentJoint.nextJoints[i];
-                if (nextJoint.isLegJoint == true)
+                if (nextJoint.isPartOfLeg())
                 {
                     while (nextJoint != null)
                     {
@@ -88,6 +105,7 @@ public class Skeleton
                         nextJoint.closestBodyJoint = latestBodyJoint;
                         if (nextJoint.nextJoints == null || nextJoint.nextJoints.Count == 0)
                         {
+                            nextJoint.type = BoneJoint.BoneJointType.Foot;
                             feet.Add(nextJoint);
                             maxDistFromBodyJoint = 0f;
                             nextJoint = null;
@@ -108,6 +126,22 @@ public class Skeleton
         if(baseOfNeck == null)
         {
             baseOfNeck = head;
+        }
+
+        for(int i = 0; i < feet.Count; i++) {
+            BoneJoint currentBonejoint = feet[i];
+            float dist = 0;
+            while (currentBonejoint.previousJoint != null && currentBonejoint.isPartOfLeg())
+            {
+                currentBonejoint.attachedFoot = feet[i];
+                currentBonejoint.distanceFromFoot = dist;
+                currentBonejoint = currentBonejoint.previousJoint;
+                dist += currentBonejoint.distanceFromLastBone;
+            }
+            if(currentBonejoint != null && currentBonejoint.isPartOfBody())
+            {
+                currentBonejoint.type = BoneJoint.BoneJointType.Hip;
+            }
         }
     }
 }
@@ -300,8 +334,8 @@ public class SkeletonGenerator : MonoBehaviour {
             currentJointGO.transform.localScale = currentJoint.scale;
             currentJointGO.transform.position = lastJointGO.transform.position;
             Vector2 pos = PolarToCartesian(currentJoint.distanceFromLastBone, currentJoint.angleFromLastBone);
-            currentJointGO.transform.position += new Vector3(pos.x, pos.y,0);
-            currentJointGO.GetComponent<Renderer>().material.color = currentJoint.color;
+            currentJointGO.transform.position += new Vector3(pos.x, pos.y, 0);
+            currentJointGO.GetComponent<SpriteRenderer>().material.color = currentJoint.color;
             Joint joint = currentJointGO.AddComponent<Joint>();
             joint.m_boneJoint = currentJoint;
 
