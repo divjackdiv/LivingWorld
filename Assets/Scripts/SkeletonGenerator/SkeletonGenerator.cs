@@ -150,11 +150,10 @@ public class SkeletonGenerator : MonoBehaviour {
     [Header("General")]
     public string m_seed;
     public bool m_useRandomSeed;
-    public GameObject m_creaturePrefab;
+    public CreatureSkinner m_skinner;
 
 
     [Header("Body Joints")]
-    public GameObject m_jointPrefab;
     public int m_minJointCount = 10;
     public int m_maxJointCount = 30;
     public float m_minJointScale = 1;
@@ -178,28 +177,19 @@ public class SkeletonGenerator : MonoBehaviour {
     public float m_maxLegAngleDiff = 1;
     public float m_minYPos = 0;
 
-    [Header("Lines")]
-    public float m_lineRendererScale = 0.1f;
-
-    [Header("Palette Colors")]
-    public Coord m_nbOfColorsMinMax = new Coord(2, 5);
-    public Vector2 m_hueDifferenceMinMax = new Vector2(0.02f, 0.08f);
-    public Vector2 m_hueMinMax = new Vector2(0f, 1f);
-    public Vector2 m_saturationMinMax = new Vector2(0f, 1f);
-    public Vector2 m_luminanceMinMax = new Vector2(0f, 1f);
 
     [Header("Misc")]
     public bool m_takeScreenshot;
 
 
     private System.Random m_pseudoRandom;
+    private GameObject m_currentSkeleton;
     // Use this for initialization
     void Start ()
     {
        
 	}
 
-    GameObject m_currentSkeleton;
 	// Update is called once per frame
 	void Update ()
     {
@@ -209,7 +199,7 @@ public class SkeletonGenerator : MonoBehaviour {
                 Destroy(m_currentSkeleton);
             UpdateSeed();
             Skeleton skel = GenerateRandomSkeleton();
-            m_currentSkeleton = CreateSkeletonGameObject(skel);
+            m_currentSkeleton = m_skinner.CreateSkeletonGameObject(skel, m_pseudoRandom);
             if(m_takeScreenshot)
                 ScreenCapture.CaptureScreenshot("CreatureScreenshots/"+m_seed+".png");
         }
@@ -220,7 +210,7 @@ public class SkeletonGenerator : MonoBehaviour {
         int jointCount = m_minJointCount + (int)(RandomFloat() * (m_maxJointCount - m_minJointCount));
         int legCount = m_minLegCount + (int)(RandomFloat() * (m_maxLegCount - m_minLegCount));
         int legJointCount = m_minLegJointCount + (int)(RandomFloat() * (m_maxLegJointCount - m_minLegJointCount));
-        List<Color> colorPalette = GenerateRandomColorPalette(m_nbOfColorsMinMax, m_hueMinMax, m_saturationMinMax, m_luminanceMinMax, m_hueDifferenceMinMax);
+        List<Color> colorPalette = m_skinner.GenerateRandomColorPalette(m_pseudoRandom);
         Skeleton skel = new Skeleton();
         skel.head = GenerateRandomSkeletonJoints(jointCount, legCount, legJointCount, colorPalette);
         skel.SetupFromHead();
@@ -317,67 +307,4 @@ public class SkeletonGenerator : MonoBehaviour {
         return (2f * (float)m_pseudoRandom.NextDouble()) -1f;
     }
 
-    GameObject CreateSkeletonGameObject(Skeleton s)
-    {
-        GameObject creature = Instantiate(m_creaturePrefab);
-        creature.GetComponent<Creature>().m_skeleton = s;
-        List<BoneJoint> jointsToVisit = new List<BoneJoint>();
-        jointsToVisit.Add(s.head);
-        GameObject lastJointGO = creature;
-        while (jointsToVisit.Count > 0)
-        {
-            BoneJoint currentJoint = jointsToVisit[0];
-            if(currentJoint.previousJoint != null)
-                lastJointGO = currentJoint.previousJoint.gameObject;
-            GameObject currentJointGO = Instantiate(m_jointPrefab);
-            currentJointGO.transform.parent = creature.transform;// lastJointGO.transform;
-            currentJointGO.transform.localScale = currentJoint.scale;
-            currentJointGO.transform.position = lastJointGO.transform.position;
-            Vector2 pos = PolarToCartesian(currentJoint.distanceFromLastBone, currentJoint.angleFromLastBone);
-            currentJointGO.transform.position += new Vector3(pos.x, pos.y, 0);
-            currentJointGO.GetComponent<SpriteRenderer>().material.color = currentJoint.color;
-            Joint joint = currentJointGO.AddComponent<Joint>();
-            joint.m_boneJoint = currentJoint;
-
-            LineRenderer lr = currentJointGO.GetComponent<LineRenderer>();
-            lr.SetPosition(0, currentJointGO.transform.position);
-            lr.startColor = currentJoint.color;
-            lr.startWidth = currentJoint.scale.x * m_lineRendererScale;
-            lr.SetPosition(1, lastJointGO.transform.position);
-            if (currentJoint.previousJoint != null)
-            {
-                lr.endWidth = currentJoint.previousJoint.scale.x * m_lineRendererScale;
-                lr.endColor = currentJoint.previousJoint.color;
-            }
-            currentJoint.gameObject = currentJointGO;
-            currentJoint.transform = currentJointGO.transform;
-            jointsToVisit.RemoveAt(0);
-            if (currentJoint.nextJoints != null)
-                jointsToVisit.AddRange(currentJoint.nextJoints);
-        }
-        return creature;
-    }
-    
-    Vector2 PolarToCartesian(float distance, float angle)
-    {
-        return new Vector2(distance * Mathf.Cos(angle), distance * Mathf.Sin(angle));
-    }
-
-    List<Color> GenerateRandomColorPalette(Coord numberOfColorsMinMax, Vector2 hueMinMax, Vector2 saturationMinMax, Vector2 luminanceMinMax, Vector2 hueDifferenceMinMax)
-    {
-        List<Color> palette = new List<Color>();
-        int numberOfColors =(int) (Mathf.PerlinNoise((float)m_pseudoRandom.NextDouble() * 10f, 0) * (numberOfColorsMinMax.y - numberOfColorsMinMax.x) + numberOfColorsMinMax.x);
-        float randHue = (Mathf.PerlinNoise((float)m_pseudoRandom.NextDouble() * 10f,0) * (hueMinMax[1] - hueMinMax[0])) + hueMinMax[0];
-        for (int i = 0; i < numberOfColors; i++)
-        {
-            float saturation = ((Mathf.PerlinNoise((float)m_pseudoRandom.NextDouble() * 10f, 0)) * ((saturationMinMax[1] - saturationMinMax[0]) / numberOfColors * i)) + saturationMinMax[0];
-            float hue = (randHue + (Mathf.PerlinNoise((float)m_pseudoRandom.NextDouble() * 10f, 0))  * (hueDifferenceMinMax[1] - hueDifferenceMinMax[0]) + hueDifferenceMinMax[0])%1f;
-            float luminance = ((Mathf.PerlinNoise((float)m_pseudoRandom.NextDouble() * 10f, 0)) * ((luminanceMinMax[1] - luminanceMinMax[0])) / numberOfColors * i) + luminanceMinMax[0];
-            //   print("saturation " + saturation + " hue " + hue + " luminance " + luminance);
-            palette.Add(Color.HSVToRGB(hue, saturation, luminance));
-            randHue = hue;
-        }
-        
-        return palette;
-    }
 }

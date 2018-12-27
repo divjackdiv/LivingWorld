@@ -28,7 +28,7 @@ public class Creature : MonoBehaviour {
         {
             Vector3 cameraPos = attachedCamera.transform.position - m_head.transform.position;
             cameraPos.z = transform.position.z;
-            transform.position = attachedCamera.transform.position ;
+            transform.position = attachedCamera.transform.position;
         }
     }
 	
@@ -36,9 +36,7 @@ public class Creature : MonoBehaviour {
 	void Update () {
         if (attachToCamera)
         {
-            Vector3 creaturePos = m_head.transform.position;
-            creaturePos.z = attachedCamera.position.z;
-            attachedCamera.position = creaturePos;
+            attachedCamera.position = new Vector3(m_head.transform.position.x, attachedCamera.position.y, attachedCamera.position.z);
         }
     }
 }

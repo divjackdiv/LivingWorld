@@ -12,8 +12,10 @@ public class CreatureMovement : MonoBehaviour {
     [Tooltip("Speed of the creature as a whole")]
     public float m_movementSpeed = 1f;
     public float m_feetSpeed = 1f;
-    [Tooltip("This modifies how far behind a leg has to be before trying to catch up, lower is nearer.")]
+    [Tooltip("This modifies how far away a foot has to be from a body joint in order to move, as such lower is nearer.")]
     public float m_feetCatchUp = 0.9f;
+    public AnimationCurve m_legCurve;
+    public float m_legCurveStrength;
     [Range(0,100)]
     public float m_percentageOfMovingFeet = 66f;
 
@@ -42,6 +44,8 @@ public class CreatureMovement : MonoBehaviour {
 
     // Update is called once per frame
     void Update () {
+        if (Input.GetKeyDown(KeyCode.M))
+            move = !move;
         if(m_followMouse && m_debugJoint != null)
         {
             Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
@@ -73,14 +77,6 @@ public class CreatureMovement : MonoBehaviour {
                     StepForward(currentFoot, finalPosition);
                 }
             }
-           /* else if(m_currentMovingFeetCount > 0 && (m_currentMovingFeetCount + 1 >= ((m_creatureFeet.Count / 100f) * 66f)))
-            {
-                print("leg " + i + " cannot move cause of other legs ");
-            }
-            else
-            {
-                print("cant take a step " + i);
-            }*/
         }
         
     }
@@ -242,7 +238,6 @@ public class CreatureMovement : MonoBehaviour {
 
     void FeedBackward(Joint from, Joint previous)
     {
-        print("feed backward ");
         if (from.m_boneJoint == null || previous.m_boneJoint == null)
             return;
         float currentAngle = Vector2.SignedAngle(Vector3.right, from.transform.position - previous.transform.position);
@@ -266,9 +261,18 @@ public class CreatureMovement : MonoBehaviour {
         {
             if (currentJoint.m_boneJoint.nextJoints != null )
             {
-                Vector2 lockedTo = currentJoint.m_boneJoint.attachedFoot.transform.position;
-                Vector3 lockedPos = GetPosLocked(previousJointPos, currentJointPos, currentJoint.m_boneJoint.distanceFromLastBone, false);
-                targetPos = GetPosLocked(lockedTo, lockedPos, currentJoint.m_boneJoint.distanceFromFoot, true);
+                Vector3 footPos = currentJoint.m_boneJoint.attachedFoot.transform.position;
+
+                float maxDistFromFoot = currentJoint.m_boneJoint.distanceFromFoot;
+                float maxDist = currentJoint.m_boneJoint.maxDistanceFromBodyJoint + maxDistFromFoot;
+                float rotationToAddCurve = m_legCurve.Evaluate(maxDistFromFoot / maxDist);
+                float footToBodyAngle = Vector2.Angle(Vector2.right, (Vector2) (currentJoint.m_boneJoint.closestBodyJoint.transform.position - footPos));
+                Vector2 toAdd = new Vector2(rotationToAddCurve, maxDistFromFoot / maxDist);
+                Vector2 curved = (Quaternion.Euler(0, 0, footToBodyAngle) * toAdd) * m_legCurveStrength;
+                curved += currentJointPos;
+
+                Vector3 lockedPos = GetPosLocked(previousJointPos, curved, currentJoint.m_boneJoint.distanceFromLastBone, false);
+                targetPos = GetPosLocked(footPos, lockedPos, currentJoint.m_boneJoint.distanceFromFoot, true);
             }
             else //if is a foot 
                 targetPos = currentJointPos;
@@ -298,13 +302,7 @@ public class CreatureMovement : MonoBehaviour {
                 float distFromHip = 0;
                 int i = 0;
                 while(nextHip.type != BoneJoint.BoneJointType.Hip && nextHip.nextJoints.Count > 0)
-                {
-
-                    i++;
-                    if (i >= 100) {
-                        Debug.LogError("you dumb ass ");
-                        break;
-                    }
+                {                   
                     nextHip = nextHip.nextJoints[0];
                     distFromHip += nextHip.distanceFromLastBone;
                 }
@@ -353,7 +351,7 @@ public class Foot
         joint = footJoint;
     }
 
-    public bool ShouldTakeAStep(Vector3 target, float distanceMultiplier = 1f)
+    public bool ShouldTakeAStep(Vector3 target, float distanceMultiplier)
     {
         float distFromJoint = Vector2.Distance(joint.transform.position, joint.closestBodyJoint.transform.position);
         float distFromTarget = Vector2.Distance(joint.transform.position, target);
