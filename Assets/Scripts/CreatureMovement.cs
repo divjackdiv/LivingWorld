@@ -6,7 +6,8 @@ public class CreatureMovement : MonoBehaviour {
     public Joint m_debugJoint;
     public float m_lerpWeight = 1f;
     public float m_floorY;
-    public float m_footStepWidth = 0.3f;
+    public float m_minFootStepWidth = 0.3f;
+    public float m_maxFootStepWidth = 0.5f;
     public float m_footStepHeight = 1f;
 
     [Tooltip("Speed of the creature as a whole")]
@@ -25,10 +26,13 @@ public class CreatureMovement : MonoBehaviour {
 
     [Header("Debug")]
     public bool m_followMouse;
+    public bool m_goForward;
+    public float m_heightOffset;
 
     private List<Foot> m_creatureFeet;
     private Creature m_creature;
-    private int m_currentMovingFeetCount;
+    public int m_currentMovingFeetCount;
+    private float headHeight;
 
     // Use this for initialization
     void Start () {
@@ -40,16 +44,31 @@ public class CreatureMovement : MonoBehaviour {
             m_creatureFeet.Add(foot);
         }
         m_debugJoint = m_creature.m_head;
+
+        headHeight = 0;
+        BoneJoint current = m_creature.m_head.m_boneJoint;
+        while (current.nextJoints.Count > 0)
+        {
+            current = current.nextJoints[0];
+            headHeight += current.distanceFromLastBone;
+        }        
     }
 
     // Update is called once per frame
     void Update () {
         if (Input.GetKeyDown(KeyCode.M))
             move = !move;
-        if(m_followMouse && m_debugJoint != null)
-        {
-            Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
-            MoveTo(mousePos, m_debugJoint);
+        if (m_debugJoint != null) {
+            if (m_followMouse)
+            {
+                Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+                MoveTo(mousePos, m_debugJoint);
+            }
+            else if (m_goForward) {
+                Vector2 follow = new Vector2(m_creature.m_head.transform.position.x - 1, headHeight + (headHeight* m_heightOffset));
+                Debug.DrawLine(m_creature.m_head.transform.position, follow);
+                MoveTo(follow, m_debugJoint);
+            }
         }
     }
 
@@ -70,7 +89,7 @@ public class CreatureMovement : MonoBehaviour {
             }
             else if (m_currentMovingFeetCount == 0 || ((m_currentMovingFeetCount + 1) <= ((m_creatureFeet.Count/100f) * m_percentageOfMovingFeet)))
             {
-
+                
                 if (currentFoot.ShouldTakeAStep(finalPosition, m_feetCatchUp))
                 {
                     m_currentMovingFeetCount++;
@@ -85,18 +104,22 @@ public class CreatureMovement : MonoBehaviour {
     void MoveBodyJointTo(Vector2 finalPosition, Joint leadingJoint)
     {
         Vector2 constrainedPosition = finalPosition;
+        float distFromTarget  =Vector2.Distance(leadingJoint.transform.position, finalPosition);
         for (int i = 0; i < m_creature.m_feet.Count; i++)
         {
             Joint currentFoot = m_creature.m_feet[i];
             Transform currentFootTransform = currentFoot.transform;
             BoneJoint closestBodyJoint = currentFoot.m_boneJoint.closestBodyJoint;
+            //Ignore this foot if it's closer to the target than the leading joint.
+            if (Vector2.Distance(currentFoot.transform.position, finalPosition) < distFromTarget)
+                continue;
 
             Vector2 constrainedToBodyJoint = GetPosLocked(currentFootTransform.position, closestBodyJoint.transform.position, currentFoot.m_boneJoint.maxDistanceFromBodyJoint);
             float distance = closestBodyJoint.maxDistanceFromHead;
             distance += currentFoot.m_boneJoint.maxDistanceFromBodyJoint - Vector2.Distance(currentFootTransform.position, closestBodyJoint.transform.position); //add any remaining distance
             constrainedPosition = GetPosLocked(constrainedToBodyJoint, constrainedPosition, distance);       
         }
-
+        Debug.DrawLine(leadingJoint.transform.position, constrainedPosition);
         leadingJoint.transform.position = Vector2.MoveTowards(leadingJoint.transform.position, constrainedPosition, m_movementSpeed * Time.deltaTime);
         UpdatePosToNeighbours(leadingJoint);
     }
@@ -160,7 +183,8 @@ public class CreatureMovement : MonoBehaviour {
         foot.stepTargetDefined = true;
         Vector3 stepTarget = footJoint.closestBodyJoint.transform.position;
         float xDistTargetToFoot = targetDestination.x - footJoint.transform.position.x;
-        stepTarget.x += ((xDistTargetToFoot > 0) ? 1 : -1) * (m_footStepWidth * footJoint.maxDistanceFromBodyJoint);
+        float stepWidth = Random.Range(m_minFootStepWidth, m_maxFootStepWidth);
+        stepTarget.x += ((xDistTargetToFoot > 0) ? 1 : -1) * (stepWidth * footJoint.maxDistanceFromBodyJoint);
         stepTarget.y = m_floorY; //DEBUG until I implement raycasts
         foot.currentStepHeight = m_footStepHeight * footJoint.maxDistanceFromBodyJoint;// Random.Range(minRand, maxRand);
         foot.currentTarget = GetPosLocked(footJoint.closestBodyJoint.transform.position, stepTarget, footJoint.maxDistanceFromBodyJoint * 0.8f);
@@ -287,11 +311,11 @@ public class CreatureMovement : MonoBehaviour {
                     if (nextJoint.isPartOfLeg())
                     {
                         Vector2 lockedTo = nextJoint.attachedFoot.transform.position;
-                        Vector2 jointMaxPos = GetPosLocked(lockedTo, currentJointPos, nextJoint.distanceFromFoot, true); //where the joint should be
+                        Vector2 jointMaxPos = GetPosLocked(lockedTo, nextJoint.transform.position, nextJoint.distanceFromFoot, true); 
+                        jointMaxPos = GetPosLocked(jointMaxPos, currentJointPos, nextJoint.distanceFromLastBone, false); //where the joint should be
 
-                        //now that we have the correct position of the joint, treat it as you would a leg joint
                         targetPos = GetPosLocked(previousJointPos, jointMaxPos, currentJoint.m_boneJoint.distanceFromLastBone, false);
-                        targetPos = GetPosLocked(lockedTo, targetPos, nextJoint.distanceFromFoot + currentJoint.m_boneJoint.distanceFromLastBone, true);
+                        targetPos = GetPosLocked(lockedTo, targetPos, nextJoint.distanceFromFoot + nextJoint.distanceFromLastBone, true);
                         break;
                     }
                 }
@@ -357,7 +381,7 @@ public class Foot
         float distFromTarget = Vector2.Distance(joint.transform.position, target);
         bool isFarAwayEnoughFromBodyJoint = distFromJoint > (joint.maxDistanceFromBodyJoint * distanceMultiplier);
         bool isFutherFromTargetThanBodyJoint = distFromTarget > Vector2.Distance(joint.closestBodyJoint.transform.position, target);
-
-        return (isGrounded == false) || (isFarAwayEnoughFromBodyJoint && isFutherFromTargetThanBodyJoint);
+        bool shouldTakeStep = (isGrounded == false) || (isFarAwayEnoughFromBodyJoint && isFutherFromTargetThanBodyJoint);
+        return shouldTakeStep;
     }
 }
