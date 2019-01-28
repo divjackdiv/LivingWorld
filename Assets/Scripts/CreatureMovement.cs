@@ -17,12 +17,17 @@ public class CreatureMovement : MonoBehaviour {
     public float m_feetCatchUp = 0.9f;
     public AnimationCurve m_legCurve;
     public float m_legCurveStrength;
-    [Range(0,100)]
+    [Range(0, 100)]
     public float m_percentageOfMovingFeet = 66f;
-
+    public Vector2 m_nonMovingFeetSpeedFactor;
     [Tooltip("Speed at which bonejoints follow the body")]
     public float m_boneJointsLerpSpeed = 6f;
     public AnimationCurve m_legHeightCurve;
+    [Header("Head Bobbing")]
+    public float m_headBobbing;
+    public float m_headBobbingSpeed;
+    [Range(0,1)]
+    public float m_headBobbingFadeOut;
 
     [Header("Debug")]
     public bool m_followMouse;
@@ -31,17 +36,30 @@ public class CreatureMovement : MonoBehaviour {
 
     private List<Foot> m_creatureFeet;
     private Creature m_creature;
-    public int m_currentMovingFeetCount;
+    private Dictionary<BoneJoint, int> m_feetCountPerHip;
+    private Dictionary<BoneJoint, int> m_movingFeetPerHip;
+    private int m_currentMovingFeetCount;
     private float headHeight;
 
     // Use this for initialization
-    void Start () {
+    void Start() {
         m_creature = GetComponent<Creature>();
         m_creatureFeet = new List<Foot>();
-        for (int i=0; i < m_creature.m_feet.Count; i++)
+        m_feetCountPerHip = new Dictionary<BoneJoint, int>();
+        m_movingFeetPerHip = new Dictionary<BoneJoint, int>();
+        for (int i = 0; i < m_creature.m_feet.Count; i++)
         {
             Foot foot = new Foot(m_creature.m_feet[i].m_boneJoint);
             m_creatureFeet.Add(foot);
+            if (m_feetCountPerHip.ContainsKey(foot.joint.closestBodyJoint))
+            {
+                m_feetCountPerHip[foot.joint.closestBodyJoint]++;
+            }
+            else {
+                m_feetCountPerHip.Add(foot.joint.closestBodyJoint, 1);
+                m_movingFeetPerHip.Add(foot.joint.closestBodyJoint, 0);
+            }
+
         }
         m_debugJoint = m_creature.m_head;
 
@@ -51,24 +69,21 @@ public class CreatureMovement : MonoBehaviour {
         {
             current = current.nextJoints[0];
             headHeight += current.distanceFromLastBone;
-        }        
+        }
     }
 
     // Update is called once per frame
-    void Update () {
-        if (Input.GetKeyDown(KeyCode.M))
-            move = !move;
+    void Update() {
         if (m_debugJoint != null) {
+            Vector2 follow;
             if (m_followMouse)
-            {
-                Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
-                MoveTo(mousePos, m_debugJoint);
-            }
-            else if (m_goForward) {
-                Vector2 follow = new Vector2(m_creature.m_head.transform.position.x - 1, headHeight + (headHeight* m_heightOffset));
-                Debug.DrawLine(m_creature.m_head.transform.position, follow);
-                MoveTo(follow, m_debugJoint);
-            }
+                follow = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+            else if (m_goForward)
+                follow = new Vector2(m_creature.m_head.transform.position.x - 1, headHeight + (headHeight * m_heightOffset));
+            else
+                return;
+            Debug.DrawLine(m_creature.m_head.transform.position, follow);
+            MoveTo(follow, m_debugJoint);
         }
     }
 
@@ -87,24 +102,30 @@ public class CreatureMovement : MonoBehaviour {
                 m_currentMovingFeetCount++;
                 StepForward(currentFoot, finalPosition);
             }
-            else if (m_currentMovingFeetCount == 0 || ((m_currentMovingFeetCount + 1) <= ((m_creatureFeet.Count/100f) * m_percentageOfMovingFeet)))
+            else if (m_currentMovingFeetCount == 0 || ((m_currentMovingFeetCount + 1) <= ((m_creatureFeet.Count / 100f) * m_percentageOfMovingFeet)))
             {
-                
-                if (currentFoot.ShouldTakeAStep(finalPosition, m_feetCatchUp))
+                if ((m_movingFeetPerHip[currentFoot.joint.closestBodyJoint] * 1f) / m_feetCountPerHip[currentFoot.joint.closestBodyJoint] <= 100f / m_percentageOfMovingFeet)
                 {
-                    m_currentMovingFeetCount++;
-                    StepForward(currentFoot, finalPosition);
+                    if (currentFoot.ShouldTakeAStep(finalPosition, m_feetCatchUp))
+                    {
+                        m_currentMovingFeetCount++;
+                        StepForward(currentFoot, finalPosition);
+                    }
+
                 }
             }
         }
-        
+
     }
 
-    
+
     void MoveBodyJointTo(Vector2 finalPosition, Joint leadingJoint)
     {
         Vector2 constrainedPosition = finalPosition;
-        float distFromTarget  =Vector2.Distance(leadingJoint.transform.position, finalPosition);
+        float headBob = AddBobbing(leadingJoint.transform.position.x);
+        headBob *= Mathf.Clamp01(Vector2.Distance(finalPosition, leadingJoint.transform.position) - m_headBobbingFadeOut);
+        constrainedPosition.y += headBob;
+        float distFromTarget = Vector2.Distance(leadingJoint.transform.position, finalPosition);
         for (int i = 0; i < m_creature.m_feet.Count; i++)
         {
             Joint currentFoot = m_creature.m_feet[i];
@@ -117,15 +138,16 @@ public class CreatureMovement : MonoBehaviour {
             Vector2 constrainedToBodyJoint = GetPosLocked(currentFootTransform.position, closestBodyJoint.transform.position, currentFoot.m_boneJoint.maxDistanceFromBodyJoint);
             float distance = closestBodyJoint.maxDistanceFromHead;
             distance += currentFoot.m_boneJoint.maxDistanceFromBodyJoint - Vector2.Distance(currentFootTransform.position, closestBodyJoint.transform.position); //add any remaining distance
-            constrainedPosition = GetPosLocked(constrainedToBodyJoint, constrainedPosition, distance);       
+            constrainedPosition = GetPosLocked(constrainedToBodyJoint, constrainedPosition, distance);
         }
         Debug.DrawLine(leadingJoint.transform.position, constrainedPosition);
-        leadingJoint.transform.position = Vector2.MoveTowards(leadingJoint.transform.position, constrainedPosition, m_movementSpeed * Time.deltaTime);
+        float feetMovingRatio = m_creatureFeet.Count > 0 ? (m_currentMovingFeetCount / (1f * m_creatureFeet.Count)) : 1;
+        float speed = m_movementSpeed * Mathf.Lerp(m_nonMovingFeetSpeedFactor.x, m_nonMovingFeetSpeedFactor.y, 1f - feetMovingRatio);
+        leadingJoint.transform.position = Vector2.MoveTowards(leadingJoint.transform.position, constrainedPosition, speed * Time.deltaTime);
         UpdatePosToNeighbours(leadingJoint);
     }
 
 
-    public bool move = false;
     public float minRand = 0.5f;
     public float maxRand = 1f;
     public float completeness;
@@ -140,41 +162,49 @@ public class CreatureMovement : MonoBehaviour {
             bool foundSuitableNextStep = DefineNextStep(foot, targetDestination);
             if (foundSuitableNextStep == false)
                 return;
+
+            m_movingFeetPerHip[foot.joint.closestBodyJoint]++;
         }
-        Vector2 footToTarget = (foot.currentTarget -((Vector2)footJoint.transform.position));
+        Vector2 footToTarget = (foot.currentTarget - ((Vector2)footJoint.transform.position));
         footToTarget = footToTarget.normalized;
 
         Vector2 pathToTarget;
-        float diffFromLastFrame = (m_feetSpeed * Time.deltaTime);
+        float speed = m_feetSpeed * Mathf.Lerp(m_nonMovingFeetSpeedFactor.x, m_nonMovingFeetSpeedFactor.y, 1f - (m_currentMovingFeetCount / (1f * m_creatureFeet.Count)));
+        float diffFromLastFrame = (speed * Time.deltaTime);
 
         pathToTarget.y = footJoint.transform.position.y + (diffFromLastFrame * footToTarget.y);//  targetIsAbove);
         pathToTarget.x = footJoint.transform.position.x + (diffFromLastFrame * footToTarget.x);// targetIsToTheRight);
 
-        // float xToYRatio = 1;
-        // if (foot.currentTarget.y - foot.startStepPos.y != 0)
-        //     xToYRatio = Mathf.Abs((foot.currentTarget.x - foot.startStepPos.x) / (foot.currentTarget.y - foot.startStepPos.y));
 
-        float xDist  = Mathf.Clamp01(Mathf.Abs((footJoint.transform.position.x - foot.currentTarget.x) /(foot.startStepPos.x - foot.currentTarget.x)));
-        foot.stepCompleteness = completeness = 1f - xDist;
-        
-        Vector2 animationCurve = Vector2.zero;
-      //  animationCurve.x = (m_legHeightCurve.Evaluate(foot.stepCompleteness) * foot.currentStepHeight);// * (1 - xToYRatio));
-        animationCurve.y = (m_legHeightCurve.Evaluate(foot.stepCompleteness) * foot.currentStepHeight) * (m_feetSpeed * Time.deltaTime);// * xToYRatio);
-
-        pathToTarget += animationCurve;
-        m_targetVec = pathToTarget;
-
-        if (move)
+        if (Vector2.Distance(footJoint.transform.position, pathToTarget) > Vector2.Distance(footJoint.transform.position, foot.currentTarget))
         {
-            footJoint.transform.position = pathToTarget;// Vector2.MoveTowards(footJoint.transform.position, pathToTarget, m_feetSpeed * Time.deltaTime);
-            if (Vector2.Distance(footJoint.transform.position, foot.currentTarget) <= 0.01f)
-            {
-                foot.isGrounded = true;
-                foot.stepTargetDefined = false;
-            }
-            else
-                foot.isGrounded = false;
+            pathToTarget = foot.currentTarget;
         }
+        else
+        {
+            // float xToYRatio = 1;
+            // if (foot.currentTarget.y - foot.startStepPos.y != 0)
+            //     xToYRatio = Mathf.Abs((foot.currentTarget.x - foot.startStepPos.x) / (foot.currentTarget.y - foot.startStepPos.y));
+
+            float xDist = Mathf.Clamp01(Mathf.Abs((footJoint.transform.position.x - foot.currentTarget.x) / (foot.startStepPos.x - foot.currentTarget.x)));
+            foot.stepCompleteness = completeness = 1f - xDist;
+            Vector2 animationCurve = Vector2.zero;
+            //  animationCurve.x = (m_legHeightCurve.Evaluate(foot.stepCompleteness) * foot.currentStepHeight);// * (1 - xToYRatio));
+            animationCurve.y = (m_legHeightCurve.Evaluate(foot.stepCompleteness) * foot.currentStepHeight) * (speed * Time.deltaTime);// * xToYRatio);
+            pathToTarget += animationCurve;
+        }
+
+        m_targetVec = pathToTarget;
+        footJoint.transform.position = Vector2.MoveTowards(footJoint.transform.position, pathToTarget, m_feetSpeed * Time.deltaTime);
+        if (((Vector2)footJoint.transform.position) == foot.currentTarget)
+        {
+            foot.isGrounded = true;
+            foot.stepTargetDefined = false;
+            m_movingFeetPerHip[foot.joint.closestBodyJoint]--;
+        }
+        else
+            foot.isGrounded = false;
+
     }
 
     private bool DefineNextStep(Foot foot, Vector2 targetDestination)
@@ -194,7 +224,7 @@ public class CreatureMovement : MonoBehaviour {
         m_vector2Gizmos = foot.currentTarget;
         foot.stepCompleteness = 0;
         foot.startStepPos = footJoint.transform.position;
-        
+
         if (foot.startStepPos == foot.currentTarget) // if we are already here
         {
             Debug.LogError("oddly we are already here");
@@ -216,26 +246,26 @@ public class CreatureMovement : MonoBehaviour {
     {
         if (m_debugJoint != null)
         {
-            for(int i = 0; i < m_creatureFeet.Count; i++)
+            for (int i = 0; i < m_creatureFeet.Count; i++)
             {
 
-               /* Joint currentFoot = m_creature.m_feet[i];
-                Transform currentFootTransform = currentFoot.transform;
-                BoneJoint closestBodyJoint = currentFoot.m_boneJoint.closestBodyJoint;
+                /* Joint currentFoot = m_creature.m_feet[i];
+                 Transform currentFootTransform = currentFoot.transform;
+                 BoneJoint closestBodyJoint = currentFoot.m_boneJoint.closestBodyJoint;
 
-                Vector3 constrainedToBodyJoint = GetPosLocked(currentFootTransform.position, closestBodyJoint.transform.position, currentFoot.m_boneJoint.maxDistanceFromBodyJoint);
-                Vector3 constrainedPosition = GetPosLocked(constrainedToBodyJoint, m_target, closestBodyJoint.maxDistanceFromHead);
-                
-                Gizmos.DrawWireSphere(currentFootTransform.position, currentFoot.m_boneJoint.maxDistanceFromBodyJoint);
-                Gizmos.DrawLine(currentFootTransform.position, m_vector2Gizmos);
+                 Vector3 constrainedToBodyJoint = GetPosLocked(currentFootTransform.position, closestBodyJoint.transform.position, currentFoot.m_boneJoint.maxDistanceFromBodyJoint);
+                 Vector3 constrainedPosition = GetPosLocked(constrainedToBodyJoint, m_target, closestBodyJoint.maxDistanceFromHead);
 
-                Gizmos.DrawWireSphere(currentFoot.m_boneJoint.closestBodyJoint.transform.position, currentFoot.m_boneJoint.maxDistanceFromBodyJoint * m_feetCatchUp);
-                Gizmos.DrawWireSphere(currentFoot.m_boneJoint.closestBodyJoint.transform.position, currentFoot.m_boneJoint.maxDistanceFromBodyJoint);*/
+                 Gizmos.DrawWireSphere(currentFootTransform.position, currentFoot.m_boneJoint.maxDistanceFromBodyJoint);
+                 Gizmos.DrawLine(currentFootTransform.position, m_vector2Gizmos);
+
+                 Gizmos.DrawWireSphere(currentFoot.m_boneJoint.closestBodyJoint.transform.position, currentFoot.m_boneJoint.maxDistanceFromBodyJoint * m_feetCatchUp);
+                 Gizmos.DrawWireSphere(currentFoot.m_boneJoint.closestBodyJoint.transform.position, currentFoot.m_boneJoint.maxDistanceFromBodyJoint);*/
                 //Gizmos.DrawLine(constrainedToBodyJoint, m_target);
 
             }
         }
-        
+
     }
 
     void UpdatePosToNeighbours(Joint joint, Joint jointToIgnore = null)
@@ -244,11 +274,11 @@ public class CreatureMovement : MonoBehaviour {
             Joint previousJoint = joint.m_boneJoint.previousJoint.gameObject.GetComponent<Joint>();
             if (previousJoint != jointToIgnore)
             {
-                if(!joint.m_boneJoint.isPartOfLeg() || previousJoint.m_boneJoint.isPartOfLeg()) //don't update from leg to body. Only body to body, body to leg, or leg to leg
+                if (!joint.m_boneJoint.isPartOfLeg() || previousJoint.m_boneJoint.isPartOfLeg()) //don't update from leg to body. Only body to body, body to leg, or leg to leg
                     FeedBackward(joint, previousJoint);
             }
         }
-        for (int i = 0; i < joint.m_boneJoint.nextJoints.Count;i++)
+        for (int i = 0; i < joint.m_boneJoint.nextJoints.Count; i++)
         {
             Joint nextJoint = joint.m_boneJoint.nextJoints[i].gameObject.GetComponent<Joint>();
             if (nextJoint != jointToIgnore)
@@ -280,19 +310,19 @@ public class CreatureMovement : MonoBehaviour {
         Vector2 currentJointPos = currentJoint.transform.position;
 
         Vector2 targetPos = GetPosLocked(previousJointPos, currentJointPos, currentJoint.m_boneJoint.distanceFromLastBone, false);
-        
+
         if (currentJoint.m_boneJoint.isPartOfLeg()) //is either a legjoint
         {
-            if (currentJoint.m_boneJoint.nextJoints != null )
+            if (currentJoint.m_boneJoint.nextJoints != null)
             {
                 Vector3 footPos = currentJoint.m_boneJoint.attachedFoot.transform.position;
 
                 float maxDistFromFoot = currentJoint.m_boneJoint.distanceFromFoot;
                 float maxDist = currentJoint.m_boneJoint.maxDistanceFromBodyJoint + maxDistFromFoot;
                 float rotationToAddCurve = m_legCurve.Evaluate(maxDistFromFoot / maxDist);
-                float footToBodyAngle = Vector2.Angle(Vector2.right, (Vector2) (currentJoint.m_boneJoint.closestBodyJoint.transform.position - footPos));
-                Vector2 toAdd = new Vector2(rotationToAddCurve, maxDistFromFoot / maxDist);
-                Vector2 curved = (Quaternion.Euler(0, 0, footToBodyAngle) * toAdd) * m_legCurveStrength;
+                float footToBodyAngle = Vector2.Angle(Vector2.right, (Vector2)(currentJoint.m_boneJoint.closestBodyJoint.transform.position - footPos));
+                Vector2 toAdd = new Vector2(0, maxDistFromFoot / maxDist);
+                Vector2 curved = (Quaternion.Euler(0, 0, footToBodyAngle* rotationToAddCurve) * toAdd) * m_legCurveStrength;
                 curved += currentJointPos;
 
                 Vector3 lockedPos = GetPosLocked(previousJointPos, curved, currentJoint.m_boneJoint.distanceFromLastBone, false);
@@ -301,7 +331,7 @@ public class CreatureMovement : MonoBehaviour {
             else //if is a foot 
                 targetPos = currentJointPos;
         }
-        else 
+        else
         {
             if (currentJoint.m_boneJoint.type == BoneJoint.BoneJointType.Hip)
             {
@@ -311,7 +341,7 @@ public class CreatureMovement : MonoBehaviour {
                     if (nextJoint.isPartOfLeg())
                     {
                         Vector2 lockedTo = nextJoint.attachedFoot.transform.position;
-                        Vector2 jointMaxPos = GetPosLocked(lockedTo, nextJoint.transform.position, nextJoint.distanceFromFoot, true); 
+                        Vector2 jointMaxPos = GetPosLocked(lockedTo, nextJoint.transform.position, nextJoint.distanceFromFoot, true);
                         jointMaxPos = GetPosLocked(jointMaxPos, currentJointPos, nextJoint.distanceFromLastBone, false); //where the joint should be
 
                         targetPos = GetPosLocked(previousJointPos, jointMaxPos, currentJoint.m_boneJoint.distanceFromLastBone, false);
@@ -325,8 +355,8 @@ public class CreatureMovement : MonoBehaviour {
                 BoneJoint nextHip = currentJoint.m_boneJoint;
                 float distFromHip = 0;
                 int i = 0;
-                while(nextHip.type != BoneJoint.BoneJointType.Hip && nextHip.nextJoints.Count > 0)
-                {                   
+                while (nextHip.type != BoneJoint.BoneJointType.Hip && nextHip.nextJoints.Count > 0)
+                {
                     nextHip = nextHip.nextJoints[0];
                     distFromHip += nextHip.distanceFromLastBone;
                 }
@@ -337,7 +367,7 @@ public class CreatureMovement : MonoBehaviour {
         currentJoint.transform.position = targetPos;//Vector2.MoveTowards(currentJoint.transform.position, targetPos, m_boneJointsLerpSpeed * Time.deltaTime);
         UpdatePosToNeighbours(currentJoint, previous);
     }
- 
+
     //Get a position towards a direction while always being locked within X distance of another positon
     Vector2 GetPosLocked(Vector2 lockedTo, Vector2 moveTowards, float maxDistance, bool canBeCloserThanMaxDist = true)
     {
@@ -345,9 +375,17 @@ public class CreatureMovement : MonoBehaviour {
         float dist = canBeCloserThanMaxDist ? Vector2.Distance(lockedTo, moveTowards) : posDist;
 
         Vector2 unitVec = (moveTowards - lockedTo).normalized;
-        return (lockedTo + (unitVec * Mathf.Min(posDist,dist)));
+        return (lockedTo + (unitVec * Mathf.Min(posDist, dist)));
     }
-    
+
+    //This could be generic but for now these values are nice.
+    float AddBobbing(float x)
+    {
+        x += Time.time * m_headBobbingSpeed;
+        float compound = (Mathf.Sin(x) + Mathf.Sin(0.8f * x + .68f) + Mathf.Sin(1.1f* x + 0.17f)) / 3f;
+        compound *= m_headBobbing;
+        return compound;
+    }
 
     Vector2 PolarToCartesian(float distance, float angle)
     {

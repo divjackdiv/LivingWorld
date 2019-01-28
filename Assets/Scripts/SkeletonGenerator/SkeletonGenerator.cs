@@ -220,15 +220,15 @@ public class SkeletonGenerator : MonoBehaviour {
     
     public BoneJoint GenerateRandomSkeletonJoints(int jointCount, int legCount, int legJointCount, List<Color> palette)
     {
-        float perlinNoiseSeedOffset = RandomFloat(); //without this we would get the same result every time
+        float perlinNoiseSeed = RandomFloat(); //without this we would get the same result every time
         float perlinNoiseXOffset = RandomFloat() * 10f; //for nicer results we get a random subsection of the perlin noise
         float perlinNoiseX = 0f;
-        BoneJoint firstJoint = GenerateRandomBoneJoint(null, m_minJointScale, m_maxJointScale, 0, 0, 0, 0, perlinNoiseSeedOffset + perlinNoiseX + perlinNoiseXOffset, perlinNoiseSeedOffset + 0f, palette, false);
+        BoneJoint firstJoint = GenerateRandomBoneJoint(null, m_minJointScale, m_maxJointScale, 0, 0, 0, 0, perlinNoiseSeed + perlinNoiseX + perlinNoiseXOffset, perlinNoiseSeed + 0f, palette, false);
         if (jointCount == 1)
         {//if only a head and no other body joints, attach legs to head, otherwise never have head to leg connection
             for (int i = 0; i < legCount; i++)
             {
-                GenerateLeg(legJointCount, firstJoint, perlinNoiseSeedOffset + ((i*1f) / legCount), palette);
+                GenerateLeg(legJointCount, firstJoint, perlinNoiseSeed, ((i*1f) / legCount), palette);
             }
         }
         BoneJoint previousFrameJoint = firstJoint;
@@ -237,7 +237,7 @@ public class SkeletonGenerator : MonoBehaviour {
         for (int i = 1; i < jointCount; i++)
         {
             perlinNoiseX = (i*1f + 1f) / jointCount;
-            BoneJoint newJoint = GenerateRandomBoneJoint(previousFrameJoint, m_minJointScale, m_maxJointScale, m_minDist, m_maxDist, m_minAngleDiff, m_maxAngleDiff, perlinNoiseSeedOffset + perlinNoiseX, perlinNoiseSeedOffset + 0f, palette, false);
+            BoneJoint newJoint = GenerateRandomBoneJoint(previousFrameJoint, m_minJointScale, m_maxJointScale, m_minDist, m_maxDist, m_minAngleDiff, m_maxAngleDiff, perlinNoiseSeed + perlinNoiseX, perlinNoiseSeed + 0f, palette, false);
             previousFrameJoint.nextJoints.Add(newJoint);
             previousFrameJoint = newJoint;
             if (leg < legIndexes.Length)
@@ -246,7 +246,7 @@ public class SkeletonGenerator : MonoBehaviour {
                 {
                     if (legIndexes[j] == i)
                     {
-                        GenerateLeg(legJointCount, newJoint, perlinNoiseSeedOffset + ((leg * 1f) / legCount), palette);
+                        GenerateLeg(legJointCount, newJoint, perlinNoiseSeed, ((leg * 1f) / legCount), palette);
                         leg++;
                     }
                 }
@@ -255,12 +255,13 @@ public class SkeletonGenerator : MonoBehaviour {
         return firstJoint;
     }
 
-    public void GenerateLeg(int jointCount, BoneJoint previousLegJoint, float perlinNoiseSeedOffset, List<Color> palette)
+    public void GenerateLeg(int jointCount, BoneJoint previousLegJoint, float perlinNoiseSeed, float perlinOffset,  List<Color> palette)
     {
+        float legScale = m_minLegJointScale + (Mathf.PerlinNoise(perlinNoiseSeed, perlinNoiseSeed +0.15f) * (m_maxLegJointScale - m_minLegJointScale));
         float legPerlinNoiseX = 0f;
         for (int k = 0; k < jointCount; k++)
         {
-            BoneJoint newLegJoint = GenerateRandomBoneJoint(previousLegJoint, m_minLegJointScale, m_maxLegJointScale, m_minLegDist, m_maxLegDist, m_minLegAngleDiff, m_maxLegAngleDiff, perlinNoiseSeedOffset + legPerlinNoiseX, perlinNoiseSeedOffset + 0f, palette, true);
+            BoneJoint newLegJoint = GenerateRandomBoneJoint(previousLegJoint, legScale, legScale, m_minLegDist, m_maxLegDist, m_minLegAngleDiff, m_maxLegAngleDiff, perlinNoiseSeed + perlinOffset + legPerlinNoiseX, perlinNoiseSeed + perlinOffset, palette, true);
             previousLegJoint.nextJoints.Add(newLegJoint);
             previousLegJoint = newLegJoint;
             legPerlinNoiseX = (k * 1f) / jointCount;
